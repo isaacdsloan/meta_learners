@@ -2,41 +2,41 @@ import tensorflow as tf
 import numpy as np
 from keras import layers
 
-class T_learner(tf.keras.Model):
+def make_tlearner(input_dim, reg_l2, hidden_dim):
+    '''
+    The first argument is the column dimension of our data.
+    It needs to be specified because the functional API creates a static computational graph
+    The second argument is the strength of regularization we'll apply to the output layers
+    '''
+    x = layers.Input(shape=(input_dim,), name='input')
 
-  def __init__(self, hidden_dim):
-    super().__init__()
-    # mu_0 model
-    self.mu0_layer1 = layers.Dense(hidden_dim, activation=tf.nn.elu)
-    self.mu0_layer2 = layers.Dense(hidden_dim, activation=tf.nn.elu)
-    self.mu0_final_layer = layers.Dense(1)
-    
-    # mu_1 model
-    self.mu1_layer1 = layers.Dense(hidden_dim, activation=tf.nn.elu)
-    self.mu1_layer2 = layers.Dense(hidden_dim, activation=tf.nn.elu)
-    self.mu1_final_layer = layers.Dense(1)
-    
+    #in TF2/Keras it is idiomatic to instantiate a layer and pass its inputs on the same line unless the layer will be reused
+    # HYPOTHESIS
+    y0_hidden = layers.Dense(units=hidden_dim, activation='elu', kernel_regularizer=tf.keras.regularizers.l2(reg_l2),name='y0_hidden_1')(x)
+    y1_hidden = layers.Dense(units=hidden_dim, activation='elu', kernel_regularizer=tf.keras.regularizers.l2(reg_l2),name='y1_hidden_1')(x)
 
-  def call(self, inputs):
-    # mu_0 model
-    y0_pred = self.mu0_layer1(inputs)
-    y0_pred = self.mu0_layer1(y0_pred)
-    y0_pred = self.mu0_final_layer(y0_pred)
+    # second layer
+    y0_hidden = layers.Dense(units=hidden_dim, activation='elu', kernel_regularizer=tf.keras.regularizers.l2(reg_l2),name='y0_hidden_2')(y0_hidden)
+    y1_hidden = layers.Dense(units=hidden_dim, activation='elu', kernel_regularizer=tf.keras.regularizers.l2(reg_l2),name='y1_hidden_2')(y1_hidden)
 
-    # mu_1 model
-    y1_pred = self.mu1_layer1(inputs)
-    y1_pred = self.mu1_layer1(y1_pred)
-    y1_pred = self.mu1_final_layer(y1_pred)
+    # third
+    y0_predictions = layers.Dense(units=1, activation=None, kernel_regularizer=tf.keras.regularizers.l2(reg_l2), name='y0_predictions')(y0_hidden)
+    y1_predictions = layers.Dense(units=1, activation=None, kernel_regularizer=tf.keras.regularizers.l2(reg_l2), name='y1_predictions')(y1_hidden)
 
-    return layers.Concatenate(1)([y0_pred, y1_pred])
+    #a convenience "layer" that concatenates arrays as columns in a matrix
+    concat_pred = layers.Concatenate(1)([y0_predictions, y1_predictions])
+    #the declarations above have specified the computational graph of our network, now we instantiate it
+    model = tf.keras.Model(inputs=x, outputs=concat_pred)
 
-def t_learner_loss(pred, true):
-    # every loss function in TF2 takes 2 arguments, a vector of true values and a vector predictions
-    y_true = true[:, 0] #get individual vectors
-    t_true = true[:, 1]
+    return model
 
-    y0_pred = pred[:, 0]
-    y1_pred = pred[:, 1]
+def regression_loss(concat_true, concat_pred):
+    #computes a standard MSE loss for TARNet
+    y_true = concat_true[:, 0] #get individual vectors
+    t_true = concat_true[:, 1]
+
+    y0_pred = concat_pred[:, 0]
+    y1_pred = concat_pred[:, 1]
 
     #Each head outputs a prediction for both potential outcomes
     #We use t_true as a switch to only calculate the factual loss
